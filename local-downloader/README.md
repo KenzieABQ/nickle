@@ -84,7 +84,8 @@ npm install
 npm start
 ```
 
-You should see something like:
+The app starts and opens **<http://localhost:3210>** in your browser. You
+should see something like this in the terminal:
 
 ```
   Local Downloader
@@ -97,10 +98,49 @@ You should see something like:
 
 ### 6. Open it in your browser
 
-Go to **<http://localhost:3210>**.
+If the browser doesn't open by itself, go to **<http://localhost:3210>**.
 
-Press `Ctrl+C` in the terminal to stop the app. Any running downloads are
-cancelled.
+Use `npm run serve` instead of `npm start` to start without opening a browser.
+
+---
+
+## Everyday use
+
+Setup is done once. After that, starting the app is one double-click.
+
+| OS | Double-click this file in the `local-downloader` folder |
+| --- | --- |
+| **macOS** | `Start Local Downloader.command` |
+| **Windows** | `Start Local Downloader.bat` |
+| **Linux** | `start.sh` (or run `./start.sh` in a terminal) |
+
+A terminal window opens and the app appears in your browser. The launcher runs
+`npm install` on the first start if needed.
+
+- **Keep the terminal window open** while you use the app. It is the app.
+- **To stop it**, close that window or press `Ctrl+C` in it.
+- **Opened it twice?** No problem. The second launch just reopens the browser
+  page for the copy that is already running.
+
+### Make it even quicker
+
+- **Desktop / Dock shortcut**
+  - macOS: right-click `Start Local Downloader.command` → **Make Alias**, and
+    drag the alias to your Desktop or to the right side of the Dock.
+  - Windows: right-click `Start Local Downloader.bat` → **Show more options** →
+    **Send to** → **Desktop (create shortcut)**. You can rename the shortcut and
+    pin it to Start.
+  - Linux: most desktops let you create a launcher that runs `start.sh` with
+    "Run in terminal" turned on.
+- **Bookmark <http://localhost:3210>.** The bookmark only works while the app
+  is running.
+- **Keep yt-dlp updated** (see step 2). Websites change often, and updating
+  yt-dlp fixes most "Unable to retrieve" errors.
+
+**First double-click on macOS:** if macOS says the file can't be opened because
+it is from an unidentified developer, right-click it, choose **Open**, then
+**Open** again. It only asks once. If it says you don't have permission, run
+`chmod +x "Start Local Downloader.command"` once in Terminal from this folder.
 
 ---
 
@@ -200,6 +240,9 @@ output.
 local-downloader/
 ├── package.json      npm scripts and the one dependency (express)
 ├── server.js         local HTTP server + yt-dlp process management
+├── Start Local Downloader.command   double-click launcher (macOS)
+├── Start Local Downloader.bat       double-click launcher (Windows)
+├── start.sh          launcher (Linux)
 ├── downloads/        finished files (temporary files go in downloads/.tmp)
 ├── public/
 │   ├── index.html    markup

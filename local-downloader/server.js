@@ -21,6 +21,9 @@ const { EventEmitter } = require('node:events');
 
 const HOST = '127.0.0.1';
 const PORT = parsePort(process.env.PORT, 3210);
+const APP_URL = `http://localhost:${PORT}`;
+// `--open` (used by `npm start` and the launchers) opens the app in the browser.
+const OPEN_BROWSER = process.argv.includes('--open');
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG_BIN = process.env.FFMPEG_PATH || 'ffmpeg';
 
@@ -1255,7 +1258,7 @@ function printBanner(deps) {
   console.log('');
   console.log('  Local Downloader');
   console.log('  ' + '-'.repeat(44));
-  line('Running at', `http://localhost:${PORT}`);
+  line('Running at', APP_URL);
   line('Downloads', DOWNLOADS_DIR);
   line('yt-dlp', deps.ytdlp.installed ? deps.ytdlp.version || 'installed' : 'NOT FOUND - install it, then restart');
   line('ffmpeg', deps.ffmpeg.installed ? deps.ffmpeg.version || 'installed' : 'NOT FOUND - install it, then restart');
@@ -1263,7 +1266,25 @@ function printBanner(deps) {
   if (!deps.ytdlp.installed) console.log(`  ${MESSAGES.ytdlpMissing}`);
   if (!deps.ffmpeg.installed) console.log(`  ${MESSAGES.ffmpegMissing}`);
   if (!deps.ytdlp.installed || !deps.ffmpeg.installed) console.log('  See README.md for setup instructions.\n');
-  console.log('  Local only: listening on 127.0.0.1. Press Ctrl+C to stop.\n');
+  console.log('  Local only: listening on 127.0.0.1.');
+  console.log('  Keep this window open while you use the app. Close it (or press Ctrl+C) to stop.\n');
+}
+
+function openBrowser() {
+  openWithSystem('open', APP_URL).catch((err) => {
+    log('browser', `could not open a browser automatically (${err.message}). Open ${APP_URL} yourself.`);
+  });
+}
+
+/** True when the app on this port is already a running Local Downloader. */
+async function isAlreadyRunning() {
+  try {
+    const response = await fetch(`http://127.0.0.1:${PORT}/api/status`, { signal: AbortSignal.timeout(3000) });
+    const data = await response.json();
+    return Boolean(data && data.ytdlp && data.ffmpeg);
+  } catch {
+    return false;
+  }
 }
 
 async function start() {
@@ -1272,11 +1293,22 @@ async function start() {
   fs.rmSync(TEMP_ROOT, { recursive: true, force: true });
 
   const deps = await checkDependencies();
-  const server = app.listen(PORT, HOST, () => printBanner(deps));
+  const server = app.listen(PORT, HOST, () => {
+    printBanner(deps);
+    if (OPEN_BROWSER) openBrowser();
+  });
 
-  server.on('error', (err) => {
+  server.on('error', async (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`\n  Port ${PORT} is already in use. Close the other app or start with a different port:`);
+      if (await isAlreadyRunning()) {
+        // Launched twice: reuse the running app instead of failing.
+        console.log(`\n  Local Downloader is already running at ${APP_URL}\n`);
+        if (OPEN_BROWSER) {
+          await openWithSystem('open', APP_URL).catch(() => {});
+        }
+        process.exit(0);
+      }
+      console.error(`\n  Port ${PORT} is already in use by another program. Close it or start with a different port:`);
       console.error(`  PORT=4000 npm start   (Windows PowerShell: $env:PORT=4000; npm start)\n`);
     } else {
       console.error('\n  Could not start the server:', err.message, '\n');
@@ -1307,6 +1339,8 @@ async function start() {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // Closing the terminal window sends SIGHUP (also emitted on Windows).
+  process.on('SIGHUP', shutdown);
 }
 
 start().catch((err) => {
