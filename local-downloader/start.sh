@@ -1,5 +1,7 @@
 #!/bin/bash
 # Linux launcher: run ./start.sh (or double-click it if your file manager allows).
+# It updates the app from GitHub, installs dependencies if needed, starts the
+# server and opens your browser.
 cd "$(dirname "$0")" || exit 1
 
 pause_and_exit() {
@@ -13,9 +15,4 @@ if ! command -v node >/dev/null 2>&1; then
   pause_and_exit 1
 fi
 
-if [ ! -d node_modules ]; then
-  echo "First run: installing dependencies..."
-  npm install --no-fund --no-audit || pause_and_exit 1
-fi
-
-node server.js --open || pause_and_exit 1
+node launch.js || pause_and_exit 1

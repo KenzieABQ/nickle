@@ -15,8 +15,11 @@ and saves files into this project's `downloads/` folder.
 
 - Paste a URL, click **Analyze** to see the thumbnail, title, uploader,
   duration and available resolutions.
-- Download **Video** (Best available, 1080p, 720p, 480p, 360p; saved as MP4) or
+- Download **Video** (Best available, 1080p, 720p, 480p, 360p) or
   **Audio only** (MP3 or M4A).
+- Videos are saved as MP4 with H.264 video and AAC audio, so they play in
+  QuickTime, on iPhone/iPad, and in every common player (see
+  [Video compatibility](#video-compatibility)).
 - Live progress: percentage, downloaded size, speed, time left, and the current
   stage (Preparing, Downloading, Processing, Complete).
 - Cancel a running download. Partial files are removed.
@@ -114,8 +117,17 @@ Setup is done once. After that, starting the app is one double-click.
 | **Windows** | `Start Local Downloader.bat` |
 | **Linux** | `start.sh` (or run `./start.sh` in a terminal) |
 
-A terminal window opens and the app appears in your browser. The launcher runs
-`npm install` on the first start if needed.
+A terminal window opens and the app appears in your browser. Each time it
+starts, the launcher:
+
+1. **Checks GitHub for updates** and downloads them (`git pull`), if you set the
+   app up with `git clone`. You never need to re-download or re-clone.
+2. **Installs dependencies** on the first start, and again only when an update
+   changed them.
+3. Starts the app and opens your browser.
+
+If the update check can't run (you're offline, or you edited one of the app's
+files), it says so and starts the version you already have.
 
 - **Keep the terminal window open** while you use the app. It is the app.
 - **To stop it**, close that window or press `Ctrl+C` in it.
@@ -144,6 +156,45 @@ it is from an unidentified developer, right-click it, choose **Open**, then
 
 ---
 
+## Updating
+
+The launchers update the app automatically each time they start (see
+[Everyday use](#everyday-use)). To update by hand, run this in the project
+folder:
+
+```bash
+git pull
+```
+
+- If you downloaded the project as a ZIP instead of using `git clone`,
+  automatic updates aren't possible. Clone it once with git to get them.
+- Don't edit the app's files if you want automatic updates. A local edit to a
+  file that an update also changes blocks the update. `git status` shows what
+  you changed, and `git restore <file>` undoes it.
+- Your `downloads/` folder is never touched by updates.
+- To turn off the update check, set `LOCAL_DOWNLOADER_NO_UPDATE=1`.
+
+---
+
+## Video compatibility
+
+Many sites serve their highest-quality streams as VP9 or AV1 video with Opus
+audio. Those play in browsers and VLC, but not in QuickTime ("This file contains
+some media which isn't compatible with QuickTime Player"). To avoid that:
+
+- The app **prefers H.264 video with AAC audio** at the highest resolution up
+  to the quality you pick. On YouTube that usually means up to 1080p.
+- If a site has no H.264 version, the app downloads the best available stream
+  and then **converts it to H.264/AAC with ffmpeg**. The progress card shows
+  "Converting..." with a percentage. Conversion can take a while for long or
+  high-resolution videos.
+- Files that are already compatible are left untouched.
+
+**Files downloaded with an older version** may still be VP9/AV1. Download the
+same video again at the same quality and the app converts the existing file.
+
+---
+
 ## Where files go
 
 Everything is saved to the `downloads/` folder inside this project. Names look
@@ -166,6 +217,7 @@ Environment variables:
 | `PORT` | `3210` | Port to listen on (always bound to `127.0.0.1`) |
 | `YTDLP_PATH` | `yt-dlp` | Full path to the yt-dlp executable if it is not on `PATH` |
 | `FFMPEG_PATH` | `ffmpeg` | Full path to the ffmpeg executable if it is not on `PATH` |
+| `LOCAL_DOWNLOADER_NO_UPDATE` | unset | Set to `1` to stop the launchers checking GitHub for updates |
 
 Examples:
 
@@ -243,6 +295,7 @@ local-downloader/
 ├── Start Local Downloader.command   double-click launcher (macOS)
 ├── Start Local Downloader.bat       double-click launcher (Windows)
 ├── start.sh          launcher (Linux)
+├── launch.js         used by the launchers: update, install, start
 ├── downloads/        finished files (temporary files go in downloads/.tmp)
 ├── public/
 │   ├── index.html    markup

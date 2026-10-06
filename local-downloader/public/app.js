@@ -36,6 +36,7 @@
     donePanel: $('done-panel'),
     doneFilename: $('done-filename'),
     doneSize: $('done-size'),
+    doneNotice: $('done-notice'),
     doneError: $('done-error'),
     revealBtn: $('reveal-btn'),
     openBtn: $('open-btn'),
@@ -271,8 +272,8 @@
     } else {
       const quality = selectedValue('quality');
       el.outputHint.textContent = quality === 'best'
-        ? 'Highest available resolution as MP4'
-        : `Up to ${quality}p as MP4`;
+        ? 'Highest available resolution, MP4 (H.264) that plays in QuickTime'
+        : `Up to ${quality}p, MP4 (H.264) that plays in QuickTime`;
     }
   }
 
@@ -541,15 +542,19 @@
 
   function renderProgress(job) {
     const cancelling = job.detail === 'Cancelling';
-    el.progressStatus.textContent = cancelling ? 'Cancelling...' : STATUS_LABELS[job.state] || 'Working...';
+    // A re-encode for QuickTime reports its own progress.
+    const converting = job.state === 'processing' && Number.isFinite(job.convertPercent);
+    el.progressStatus.textContent = cancelling
+      ? 'Cancelling...'
+      : converting ? 'Converting...' : STATUS_LABELS[job.state] || 'Working...';
 
-    const percent = Math.max(0, Math.min(100, Number(job.percent) || 0));
+    const percent = Math.max(0, Math.min(100, Number(converting ? job.convertPercent : job.percent) || 0));
     const shown = job.state === 'complete' ? 100 : percent;
     el.progressPercent.textContent = `${Math.floor(shown)}%`;
     el.progressFill.style.transform = `scaleX(${shown / 100})`;
     el.progressBar.setAttribute('aria-valuenow', String(Math.floor(shown)));
 
-    const indeterminate = job.state === 'preparing' || job.state === 'processing';
+    const indeterminate = job.state === 'preparing' || (job.state === 'processing' && !converting);
     el.progressBar.classList.toggle('is-indeterminate', indeterminate);
     el.progressBar.classList.toggle('is-complete', job.state === 'complete');
 
@@ -581,6 +586,8 @@
     el.doneFilename.textContent = job.filename || 'Downloaded file';
     el.doneFilename.title = job.filename || '';
     el.doneSize.textContent = formatBytes(job.fileSize) || '';
+    el.doneNotice.textContent = job.notice || '';
+    el.doneNotice.hidden = !job.notice;
     el.doneError.hidden = true;
     el.revealBtn.disabled = false;
     el.openBtn.disabled = false;

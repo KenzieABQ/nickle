@@ -501,6 +501,8 @@ function snapshot(job) {
     eta: job.eta,
     filename: job.filename,
     fileSize: job.fileSize,
+    notice: job.notice,
+    convertPercent: job.convertPercent,
     error: job.error,
   };
 }
@@ -529,6 +531,16 @@ const PROGRESS_TEMPLATE = [
   '%(info.format_id)s',
 ].join('|');
 
+const H264 = "[vcodec~='^(avc|h264)']";
+const AAC = "[acodec~='^(mp4a|aac)']";
+const VIDEO_FORMAT_SELECTOR = [
+  `bv*${H264}+ba${AAC}`,
+  `bv*${H264}+ba`,
+  `b${H264}`,
+  'bv*+ba',
+  'b',
+].join('/');
+
 function buildDownloadArgs(job) {
   const args = [
     ...ytdlpBaseArgs(),
@@ -549,11 +561,13 @@ function buildDownloadArgs(job) {
   ];
 
   if (job.mode === 'video') {
-    // Prefer the highest resolution (capped when a quality is chosen), and
-    // MP4/M4A streams when resolutions tie, for broad player compatibility.
+    // Prefer H.264 video with AAC audio (plays in QuickTime and everywhere),
+    // at the highest resolution up to the chosen quality. Sites without
+    // H.264 fall back to the best stream, which convertForCompatibility()
+    // turns into H.264/AAC afterwards.
     const sort = job.quality === 'best' ? 'res,ext:mp4:m4a' : `res:${job.quality},ext:mp4:m4a`;
     args.push(
-      '-f', 'bv*+ba/b',
+      '-f', VIDEO_FORMAT_SELECTOR,
       '-S', sort,
       '--merge-output-format', 'mp4',
       '-o', '%(title).150B (%(height&{}p|video)s) [%(id)s].%(ext)s',
@@ -813,14 +827,7 @@ function startJob(job) {
     }
 
     if (code === 0 && finalizeFile(job)) {
-      job.state = 'complete';
-      job.detail = null;
-      job.percent = 100;
-      job.speed = null;
-      job.eta = null;
-      job.finishedAt = Date.now();
-      log('download', `${job.id.slice(0, 8)} complete: ${job.filename}`);
-      emitUpdate(job, true);
+      completeJob(job).catch((err) => failJob(job, MESSAGES.internal, err.stack));
       return;
     }
 
@@ -836,6 +843,29 @@ function startJob(job) {
   emitUpdate(job, true);
 }
 
+async function completeJob(job) {
+  if (job.mode === 'video') await convertForCompatibility(job);
+  if (job.cancelled) {
+    // Remove the unconverted file, unless it existed before this job
+    // (yt-dlp reuses existing files without downloading anything).
+    if (job.downloadedBytes && isSafeDownloadPath(job.filepath)) fs.rmSync(job.filepath, { force: true });
+    job.state = 'cancelled';
+    job.detail = null;
+    job.finishedAt = Date.now();
+    log('download', `${job.id.slice(0, 8)} cancelled during conversion`);
+    emitUpdate(job, true);
+    return;
+  }
+  job.state = 'complete';
+  job.detail = null;
+  job.percent = 100;
+  job.speed = null;
+  job.eta = null;
+  job.finishedAt = Date.now();
+  log('download', `${job.id.slice(0, 8)} complete: ${job.filename}`);
+  emitUpdate(job, true);
+}
+
 function failJob(job, message, detail) {
   if (job.state === 'error') return;
   job.state = 'error';
@@ -846,6 +876,172 @@ function failJob(job, message, detail) {
   job.finishedAt = Date.now();
   logError('download', `${job.id.slice(0, 8)} failed: ${message}`, detail);
   emitUpdate(job, true);
+}
+
+// ---------------------------------------------------------------------------
+// QuickTime compatibility
+// ---------------------------------------------------------------------------
+
+// QuickTime (and iPhone/iPad, Windows Photos, most TVs) play H.264 or HEVC
+// video with AAC/MP3/ALAC audio in MP4. Many sites serve their best streams
+// as VP9/AV1 with Opus, which needs converting.
+const COMPATIBLE_AUDIO = new Set(['aac', 'mp3', 'alac']);
+
+/** Reads the codecs of a media file from `ffmpeg -i` output. */
+function probeMedia(file) {
+  return new Promise((resolve) => {
+    let output = '';
+    let child;
+    try {
+      child = spawn(FFMPEG_BIN, ['-hide_banner', '-nostdin', '-i', file], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+      });
+    } catch {
+      resolve(null);
+      return;
+    }
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      if (output.length < 256 * 1024) output += chunk;
+    });
+    child.on('error', () => resolve(null));
+    // ffmpeg exits non-zero here ("no output file"); the stream info is what we want.
+    child.on('close', () => {
+      const lines = output.split(/\r?\n/);
+      const find = (type) => {
+        const line = lines.find((l) => /Stream #\S+/.test(l) && l.includes(`: ${type}: `) && !l.includes('attached pic'));
+        if (!line) return null;
+        const codec = (line.match(new RegExp(`${type}: ([A-Za-z0-9_]+)`)) || [])[1];
+        return codec ? { codec: codec.toLowerCase(), line } : null;
+      };
+      const d = output.match(/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/);
+      resolve({
+        video: find('Video'),
+        audio: find('Audio'),
+        duration: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : null,
+      });
+    });
+  });
+}
+
+function planConversion(info, ext) {
+  const { video, audio } = info;
+  const unsupportedH264 = /10le|12le|high 10|high 4:4:4|high 4:2:2|yuv444|yuv422/i;
+
+  let videoArgs;
+  if (video.codec === 'h264' && !unsupportedH264.test(video.line)) {
+    videoArgs = ['-c:v', 'copy'];
+  } else if (video.codec === 'hevc' && !/yuv4(44|22)/i.test(video.line)) {
+    // HEVC plays in QuickTime when tagged hvc1; this is a fast copy.
+    videoArgs = /\bhvc1\b/.test(video.line) ? ['-c:v', 'copy'] : ['-c:v', 'copy', '-tag:v', 'hvc1'];
+  } else {
+    videoArgs = [
+      '-c:v', 'libx264', '-preset', 'faster', '-crf', '20', '-pix_fmt', 'yuv420p',
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    ];
+  }
+  const audioArgs = !audio || COMPATIBLE_AUDIO.has(audio.codec)
+    ? ['-c:a', 'copy']
+    : ['-c:a', 'aac', '-b:a', '192k'];
+
+  const reencode = videoArgs[1] !== 'copy' || audioArgs[1] !== 'copy';
+  const needed = reencode || videoArgs.includes('-tag:v') || ext !== '.mp4';
+  return { needed, reencode, videoArgs, audioArgs };
+}
+
+const CONVERT_FAILED_NOTICE = 'Saved, but it could not be converted for QuickTime. It will play in VLC or IINA.';
+
+/**
+ * Makes sure a finished video plays in QuickTime. Files that are already
+ * H.264/HEVC + AAC in MP4 are left untouched. Never throws: if conversion
+ * fails, the original file is kept and the user gets a note.
+ */
+async function convertForCompatibility(job) {
+  const info = await probeMedia(job.filepath);
+  if (!info || !info.video) {
+    if (!info) log('convert', `${job.id.slice(0, 8)} could not inspect ${job.filename}; leaving it as is`);
+    return;
+  }
+
+  const ext = path.extname(job.filepath).toLowerCase();
+  const plan = planConversion(info, ext);
+  log('convert', `${job.id.slice(0, 8)} video=${info.video.codec} audio=${info.audio ? info.audio.codec : 'none'} ${ext}`);
+  if (!plan.needed) return;
+
+  const label = plan.reencode ? 'Converting for QuickTime' : 'Preparing for QuickTime';
+  job.state = 'processing';
+  job.detail = label;
+  job.convertPercent = plan.reencode && info.duration ? 0 : null;
+  emitUpdate(job, true);
+
+  fs.mkdirSync(job.tempDir, { recursive: true });
+  const tempOut = path.join(job.tempDir, 'converted.mp4');
+  const args = [
+    '-hide_banner', '-nostdin', '-y', '-loglevel', 'error',
+    '-i', job.filepath,
+    '-map', '0:v:0', '-map', '0:a:0?',
+    ...plan.videoArgs,
+    ...plan.audioArgs,
+    '-movflags', '+faststart',
+    '-progress', 'pipe:1', '-nostats',
+    tempOut,
+  ];
+
+  log('convert', `${job.id.slice(0, 8)} ${plan.reencode ? 're-encoding to H.264/AAC' : 'remuxing to MP4'}`);
+  const result = await new Promise((resolve) => {
+    let stderr = '';
+    let child;
+    try {
+      child = spawn(FFMPEG_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    } catch (err) {
+      resolve({ ok: false, stderr: err.message });
+      return;
+    }
+    job.child = child; // lets Cancel and shutdown stop the conversion
+    readLines(child.stdout, (line) => {
+      const m = line.match(/^out_time_us=(\d+)/);
+      if (m && job.convertPercent !== null) {
+        job.convertPercent = Math.round(clamp(Number(m[1]) / 1e6 / info.duration, 0, 1) * 1000) / 10;
+        emitUpdate(job, false);
+      }
+    });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      if (stderr.length < 32 * 1024) stderr += chunk;
+    });
+    child.on('error', (err) => resolve({ ok: false, stderr: err.message }));
+    child.on('close', (code) => resolve({ ok: code === 0, stderr }));
+  });
+  job.child = null;
+  job.convertPercent = null;
+
+  if (job.cancelled || !result.ok) {
+    removeTempDir(job);
+    if (!job.cancelled) {
+      logError('convert', `${job.id.slice(0, 8)} conversion failed; keeping the original file`, result.stderr);
+      job.notice = CONVERT_FAILED_NOTICE;
+    }
+    return;
+  }
+
+  try {
+    const stem = path.basename(job.filepath, path.extname(job.filepath));
+    // Same title, id and quality means the same video, so replacing is safe.
+    const target = path.join(path.dirname(job.filepath), `${stem}.mp4`);
+    fs.renameSync(tempOut, target);
+    if (target !== job.filepath) fs.rmSync(job.filepath, { force: true });
+    job.filepath = fs.realpathSync(target);
+    job.filename = path.basename(job.filepath);
+    job.fileSize = fs.statSync(job.filepath).size;
+    if (plan.reencode) job.notice = 'Converted to H.264 so it plays in QuickTime.';
+    log('convert', `${job.id.slice(0, 8)} done: ${job.filename}`);
+  } catch (err) {
+    logError('convert', `${job.id.slice(0, 8)} could not replace the original file`, err.message);
+    job.notice = CONVERT_FAILED_NOTICE;
+  } finally {
+    removeTempDir(job);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1126,6 +1322,8 @@ app.post('/api/download', asyncRoute(async (req, res) => {
     eta: null,
     filename: null,
     fileSize: null,
+    notice: null,
+    convertPercent: null,
     filepath: null,
     error: null,
     parts: [],

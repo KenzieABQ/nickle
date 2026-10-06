@@ -1,9 +1,11 @@
 #!/bin/bash
 # macOS launcher: double-click in Finder to start Local Downloader.
+# It updates the app from GitHub, installs dependencies if needed, starts the
+# server and opens your browser.
 cd "$(dirname "$0")" || exit 1
 
 # Apps started from Finder don't load your shell profile, so add the usual
-# Homebrew locations where node, yt-dlp and ffmpeg live.
+# Homebrew locations where node, git, yt-dlp and ffmpeg live.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 pause_and_exit() {
@@ -17,9 +19,4 @@ if ! command -v node >/dev/null 2>&1; then
   pause_and_exit 1
 fi
 
-if [ ! -d node_modules ]; then
-  echo "First run: installing dependencies..."
-  npm install --no-fund --no-audit || pause_and_exit 1
-fi
-
-node server.js --open || pause_and_exit 1
+node launch.js || pause_and_exit 1

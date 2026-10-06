@@ -769,6 +769,12 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.done-notice {
+  margin: -6px 0 14px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
 .actions {
   display: flex;
   align-items: center;
