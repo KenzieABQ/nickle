@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0a0a0b">
+  <title>Local Downloader</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f2f2f3'/%3E%3Cpath d='M16 8v12m-5-5 5 5 5-5M10 24h12' stroke='%230a0a0b' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <main class="shell">
+      <header class="brand">
+        <div class="brand-row">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M6 20h12"/></svg>
+          </span>
+          <span class="brand-name">Local Downloader</span>
+        </div>
+        <p class="subtitle">Download authorized media directly to your computer.</p>
+      </header>
+
+      <div id="notices" class="notices" aria-live="polite"></div>
+
+      <form id="analyze-form" class="url-form" novalidate autocomplete="off">
+        <label for="url-input" class="sr-only">Video URL</label>
+        <div class="url-field">
+          <input id="url-input" name="url" type="url" inputmode="url" placeholder="Paste a video URL..." spellcheck="false" autocapitalize="off" autocorrect="off" maxlength="2048" required>
+          <button id="analyze-btn" class="btn btn-primary" type="submit">
+            <span class="btn-label">Analyze</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+        </div>
+        <p id="url-error" class="field-error" role="alert" hidden></p>
+      </form>
+
+      <section id="skeleton" class="card media-card skeleton" hidden aria-hidden="true">
+        <div class="thumb sk"></div>
+        <div class="media-meta">
+          <div class="sk sk-line w-80"></div>
+          <div class="sk sk-line w-50"></div>
+          <div class="sk sk-line w-30"></div>
+        </div>
+      </section>
+
+      <section id="result" class="result" hidden>
+        <article class="card media-card">
+          <div class="thumb">
+            <img id="media-thumb" alt="" decoding="async" hidden>
+            <span id="media-duration-badge" class="thumb-badge" hidden></span>
+          </div>
+          <div class="media-meta">
+            <h2 id="media-title" class="media-title"></h2>
+            <p id="media-byline" class="media-byline"></p>
+            <div id="media-formats" class="format-tags"></div>
+          </div>
+        </article>
+
+        <article class="card config-card">
+          <div id="config-panel" class="panel">
+            <div class="field">
+              <span class="field-label" id="type-label">Type</span>
+              <div class="segmented" role="radiogroup" aria-labelledby="type-label">
+                <label class="seg"><input type="radio" name="mode" value="video" checked><span>Video</span></label>
+                <label class="seg"><input type="radio" name="mode" value="audio"><span>Audio only</span></label>
+              </div>
+            </div>
+
+            <div class="field" id="quality-field">
+              <span class="field-label" id="quality-label">Quality</span>
+              <div class="segmented segmented-wrap" role="radiogroup" aria-labelledby="quality-label">
+                <label class="seg"><input type="radio" name="quality" value="best" checked><span>Best available</span></label>
+                <label class="seg"><input type="radio" name="quality" value="1080"><span>1080p</span></label>
+                <label class="seg"><input type="radio" name="quality" value="720"><span>720p</span></label>
+                <label class="seg"><input type="radio" name="quality" value="480"><span>480p</span></label>
+                <label class="seg"><input type="radio" name="quality" value="360"><span>360p</span></label>
+              </div>
+            </div>
+
+            <div class="field" id="audio-field" hidden>
+              <span class="field-label" id="audio-label">Format</span>
+              <div class="segmented" role="radiogroup" aria-labelledby="audio-label">
+                <label class="seg"><input type="radio" name="audioFormat" value="mp3" checked><span>MP3</span></label>
+                <label class="seg"><input type="radio" name="audioFormat" value="m4a"><span>M4A</span></label>
+              </div>
+            </div>
+
+            <div class="config-footer">
+              <p id="output-hint" class="hint"></p>
+              <button id="download-btn" class="btn btn-primary btn-wide" type="button">Download</button>
+            </div>
+          </div>
+
+          <div id="progress-panel" class="panel" hidden>
+            <div class="progress-head">
+              <span id="progress-status" class="progress-status">Preparing...</span>
+              <span id="progress-percent" class="progress-percent">0%</span>
+            </div>
+            <div id="progress-bar" class="bar" role="progressbar" aria-labelledby="progress-status" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="progress-fill" class="bar-fill"></div>
+            </div>
+            <div class="progress-foot">
+              <span id="progress-detail" class="progress-detail"></span>
+              <button id="cancel-btn" class="btn-text" type="button">Cancel</button>
+            </div>
+          </div>
+
+          <div id="done-panel" class="panel" hidden>
+            <div class="done-head">
+              <span class="done-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+              </span>
+              <span>Download complete</span>
+            </div>
+            <div class="file-row">
+              <span id="done-filename" class="file-name"></span>
+              <span id="done-size" class="file-size"></span>
+            </div>
+            <div class="actions">
+              <button id="reveal-btn" class="btn btn-secondary" type="button">Show in folder</button>
+              <button id="open-btn" class="btn btn-secondary" type="button">Open file</button>
+              <button id="again-btn" class="btn-text push-right" type="button">New download</button>
+            </div>
+            <p id="done-error" class="inline-error" role="alert" hidden></p>
+          </div>
+
+          <div id="error-panel" class="panel" hidden>
+            <p class="error-title" id="error-title">Download failed</p>
+            <p id="error-message" class="error-message"></p>
+            <div class="actions">
+              <button id="retry-btn" class="btn btn-secondary" type="button">Try again</button>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span class="status" id="tool-status">
+        <span class="dot" id="status-dot"></span>
+        <span id="status-text">Checking tools...</span>
+      </span>
+      <span class="footer-sep" aria-hidden="true"></span>
+      <button id="open-folder-btn" class="btn-text" type="button">Open downloads folder</button>
+    </footer>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "local-downloader",
+  "version": "1.0.0",
+  "description": "A local-only media downloader for content you own or have permission to download. Runs yt-dlp and ffmpeg on your own computer.",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "license": "MIT"
+}
